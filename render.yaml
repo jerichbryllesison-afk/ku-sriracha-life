@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: ku-sriracha-life
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
