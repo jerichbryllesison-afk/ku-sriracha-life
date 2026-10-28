@@ -6,3 +6,13 @@ services:
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
+    envVars:
+      # Owner trainer key (24+ random characters). Set it in Render → Environment; never commit it.
+      - key: ADMIN_KEY
+        sync: false
+      # Render Free has NO persistent disk: the SQLite database is erased on restart / redeploy / sleep.
+      # With a paid persistent disk mounted at /var/data, uncomment both lines below:
+      # - key: DATA_DIR
+      #   value: /var/data
+      # - key: PERSISTENT_DATA
+      #   value: "1"

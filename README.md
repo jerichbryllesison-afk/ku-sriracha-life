@@ -51,3 +51,7 @@ public/shared/*.js   catalog + economy rules (shared with the server)
 public/data/*        real map data generated from campus_light.glb
 tools/build_map.py   regenerates public/data from the GLB (python + opencv + scipy + scikit-image)
 ```
+
+## Play online with friends (free)
+- Quick: double-click `share.bat` → copy the `https://….trycloudflare.com` link it prints and send it. Your PC must stay on; the link changes every time.
+- 24/7: deploy to Render (free web service, `npm start`). It sleeps after 15 min idle and its disk is wiped on restart, so saves reset.

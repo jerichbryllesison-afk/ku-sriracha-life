@@ -1,17 +1,27 @@
 {
   "name": "ku-sriracha-life",
-  "version": "2.0.0",
+  "version": "2.3.0",
   "description": "KU Sriracha Life — online student life simulator on the real Kasetsart University Sriracha map (max 100 players).",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "db": "node tools/db.js",
+    "backup": "node tools/db.js backup",
+    "test:db": "node tools/test-db.js",
+    "test:life": "node tools/test-life.js",
+    "test:world": "node tools/test-world.js"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "express": "^5.2.1",
     "socket.io": "^4.8.3"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "socket.io-client": "^4.8.1"
+  }
 }
