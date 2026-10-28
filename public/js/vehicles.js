@@ -14,13 +14,24 @@ const SPEC = {
   pickup: { top: 38, accel: 7.5, brake: 11, steer: 0.48, wb: 3.1, r: 1.0, tank: 55 },
   super: { top: 70, accel: 16, brake: 18, steer: 0.45, wb: 2.6, r: 1.05, tank: 60 },
   songthaew: { top: 26, accel: 5, brake: 9, steer: 0.45, wb: 3.1, r: 1.0, tank: 50 },
+  supercar: { top: 70, accel: 16, brake: 18, steer: 0.45, wb: 2.6, r: 1.05, tank: 60 },
+  pcx: { top: 32, accel: 8.5, brake: 10.5, steer: 0.54, wb: 1.35, r: 0.5, tank: 8 },
+  vespa: { top: 29, accel: 7.8, brake: 10, steer: 0.56, wb: 1.2, r: 0.5, tank: 8 },
+  forza: { top: 40, accel: 10.5, brake: 12, steer: 0.5, wb: 1.55, r: 0.55, tank: 11 },
+  civic: { top: 52, accel: 10, brake: 13, steer: 0.52, wb: 2.73, r: 0.98, tank: 40 },
+  camry: { top: 50, accel: 9.5, brake: 12.5, steer: 0.5, wb: 2.83, r: 1.0, tank: 50 },
+  bmw3: { top: 58, accel: 12, brake: 14, steer: 0.52, wb: 2.85, r: 1.0, tank: 40 },
+  amggt: { top: 85, accel: 18, brake: 20, steer: 0.47, wb: 2.63, r: 1.05, tank: 70 },
 };
-export const isBike = (t) => ['bicycle', 'wave', 'click', 'sport'].includes(t);
+export const isBike = (t) => ['bicycle', 'wave', 'click', 'sport', 'pcx', 'vespa', 'forza'].includes(t);
 
 export class Vehicle {
   constructor(type, color, mats, opts = {}) {
     this.type = type; this.color = color; this.spec = SPEC[type] || SPEC.hatch;
     const cat = VEHICLES[type]; if (cat) { this.spec = { ...this.spec, top: cat.top, accel: cat.accel }; }
+    // tuning (server-owned levels) and wear: engine +6 % top / +10 % accel per stage, handling +6 % steer, brakes +12 %
+    this.mods = opts.mods || {}; this.condition = opts.condition ?? 1; const md = this.mods, wear = 0.8 + 0.2 * Math.max(0, Math.min(1, this.condition));
+    this.spec = { ...this.spec, top: this.spec.top * (1 + 0.06 * (md.engine || 0)) * wear, accel: this.spec.accel * (1 + 0.1 * (md.engine || 0)) * wear, steer: this.spec.steer * (1 + 0.06 * (md.handling || 0)), brake: this.spec.brake * (1 + 0.12 * (md.brakes || 0)) };
     this.model = buildVehicleModel(type, color, mats);
     this.group = this.model.group; this.group.rotation.order = 'YXZ';
     this.x = 0; this.z = 0; this.y = 0; this.h = 0; this.speed = 0; this.vx = 0; this.vz = 0; this.vy = 0; this.steer = 0; this.pitch = 0; this.roll = 0;
@@ -38,7 +49,7 @@ export class Vehicle {
   // input: { throttle (-1..1), steer (-1..1, + = left), handbrake, boost }
   drive(dt, inp, world, others = []) {
     const S = this.spec; const fwdX = Math.sin(this.h), fwdZ = Math.cos(this.h);
-    let thr = inp.throttle;
+    let thr = inp.throttle; this.thr = thr; this.brk = !!inp.handbrake || (thr < 0 && this.speed > 0.3);
     if (S.tank && this.fuel <= 0) thr = Math.min(thr, 0) * 0.3;
     if (this.sunk) thr = 0;
     // longitudinal
@@ -77,7 +88,7 @@ export class Vehicle {
     }
     if (hitN) {
       const vn = this.vx * hitN[0] + this.vz * hitN[1];
-      if (vn < 0) { this.vx -= hitN[0] * vn * 1.25; this.vz -= hitN[1] * vn * 1.25; const impact = -vn; if (impact > 3) { this.crash = Math.min(1, impact / 15); } this.speed *= impact > 6 ? 0.35 : 0.8; }
+      if (vn < 0) { this.vx -= hitN[0] * vn * 1.25; this.vz -= hitN[1] * vn * 1.25; const impact = -vn; if (impact > 3) { this.crash = Math.min(1, impact / 15); if (impact > 6 && this.type !== 'bicycle') this.condition = Math.max(0, this.condition - Math.min(0.12, (impact - 6) * 0.012)); } this.speed *= impact > 6 ? 0.35 : 0.8; }
     }
     // terrain following
     const L = this.moto ? 0.65 : this.spec.wb * 0.55, W = this.moto ? 0 : 0.8;

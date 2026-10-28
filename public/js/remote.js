@@ -54,7 +54,7 @@ export class Remotes {
         if (emote !== 'p' && r.passenger) { r.passenger.root.removeFromParent(); r.passenger = null; }
         if (r.passenger) { const fx = Math.sin(h), fz = Math.cos(h); r.passenger.root.position.set(seat.x - fx * 0.45, seat.y - off + 0.05, seat.z - fz * 0.45); r.passenger.root.rotation.set(0, h, r.veh.roll, 'YXZ'); r.passenger.animate(dt, { mode: 'ride', speed: 0 }); }
       } else {
-        r.c.root.position.set(x, y, z); r.c.root.rotation.set(0, h, 0);
+        r.c.root.position.set(x, y, z); r.c.root.rotation.set(0, h, 0); r.c.root.visible = emote !== 'pass'; // riding as a passenger: hidden (shown on the driver's seat)
         if (dist < 90) r.c.animate(dt, { mode: mode === 'swim' ? 'swim' : emote === 'sleep' ? 'sleep' : 'walk', speed, grounded: !!grounded || mode === 'swim', vy: 0, emote: speed < 0.3 ? emote : null });
       }
       r.label.visible = dist < 60;

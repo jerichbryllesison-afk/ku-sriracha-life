@@ -167,6 +167,9 @@ export async function buildWorld(renderer, scene, quality, onProgress = () => {}
   const lights = [];
   for (let i = 0; i < (quality.pointLights ?? 6); i++) { const l = new THREE.PointLight(0xffd9a0, 0, 26, 1.6); scene.add(l); lights.push(l); }
   let lightTimer = 0, lodTimer = 0;
+  const _fwd = new THREE.Vector3();
+  // horizontal half-FOV + 28° margin (so turning the camera never reveals un-filled tree instances before the next update)
+  const _cosLim = (cam) => { if (!cam) return -1; const h = Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect) + 0.49; return h >= Math.PI ? -1 : Math.cos(h); };
   const pois = { ...ctx.pois };
   for (const [id, p] of Object.entries(ctx.placeObjs)) pois[id] = { x: p._door.x, z: p._door.z, name: p.name };
   pois.plaza = { x: -980, z: 30, name: 'KU Front Lawn' };
@@ -187,7 +190,8 @@ export async function buildWorld(renderer, scene, quality, onProgress = () => {}
       mats.headGlow.opacity = n * 0.95; glowMat.opacity = n * 0.9;
       terr.mat.userData.uniforms.uWet.value = env.rain || 0;
       for (const b of ctx.boats) { b.position.y = -0.15 + Math.sin(shared.time.value * 1.1 + b.position.x) * 0.12; b.rotation.z = Math.sin(shared.time.value * 0.9 + b.position.z) * 0.05; b.rotation.x = Math.sin(shared.time.value * 0.7 + b.position.x) * 0.03; }
-      lodTimer -= dt; if (lodTimer <= 0) { lodTimer = 0.4; const c = camera ? camera.position : focus; treeLOD.update(c.x, c.z, (quality.treeHi ?? 240) * (world.treeScale || 1), quality.treeLo ?? 900);
+      { const c = camera ? camera.position : focus; if (camera) camera.getWorldDirection(_fwd); treeLOD.update(c.x, c.z, (quality.treeHi ?? 240) * (world.treeScale || 1), quality.treeLo ?? 900, camera ? _fwd : null, _cosLim(camera)); }
+      lodTimer -= dt; if (lodTimer <= 0) { lodTimer = 0.4; const c = camera ? camera.position : focus;
         // planar reflection follows the nearest water body within 420 m (one extra scene render at most)
         if (ctx.waterBodies) { let best = null, bd = 420;
           for (const wb of ctx.waterBodies) { const d = wb.sea ? Math.max(0, c.x - (MAP.b.coastX + 30)) : Math.max(0, Math.hypot(wb.x - c.x, wb.z - c.z) - wb.r); if (d < bd) { bd = d; best = wb; } }

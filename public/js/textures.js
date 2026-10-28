@@ -74,13 +74,13 @@ export function grassTextures() {
   const c = fieldToCanvas(f, S, (v, i) => {
     const b = f2[i]; const n = r() * 0.12;
     const t = Math.min(1, Math.max(0, v * 1.4 - 0.2));
-    return [mix(58, 112, t) * (0.85 + b * 0.3 + n), mix(92, 140, t) * (0.85 + b * 0.25 + n), mix(34, 52, t) * (0.9 + n)];
+    return [mix(64, 118, t) * (0.85 + b * 0.3 + n), mix(90, 136, t) * (0.85 + b * 0.25 + n), mix(42, 64, t) * (0.9 + n)];
   });
   const ctx = c.getContext('2d');
   // blades
   for (let i = 0; i < 9000; i++) {
     const x = r() * S, y = r() * S, l = 2 + r() * 5; const g = 90 + r() * 80;
-    ctx.strokeStyle = `rgba(${g * 0.55 | 0},${g | 0},${g * 0.35 | 0},${0.35 + r() * 0.4})`; ctx.lineWidth = 1;
+    ctx.strokeStyle = `rgba(${g * 0.68 | 0},${g | 0},${g * 0.44 | 0},${0.35 + r() * 0.4})`; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + (r() - 0.5) * 2, y - l); ctx.stroke();
   }
   const h = heightFromCanvas(c);

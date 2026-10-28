@@ -91,7 +91,20 @@ export class Traffic {
       const obst = [];
       if (playerVeh) obst.push([playerVeh.x, playerVeh.z, playerVeh.moto ? 0.6 : 1.4, Math.abs(playerVeh.speed || 0)]);
       if (playerPos) obst.push([playerPos.x, playerPos.z, 0.6, 0]);
-      for (const [ox, oz, orr, ov] of obst) { const dx = ox - car.x, dz = oz - car.z; const ahead = dx * fx + dz * fz; if (ahead <= 0 || ahead > 30) continue; const side = Math.abs(dx * fz - dz * fx); if (side < 1.6 + orr) { const g = ahead - car.len / 2 - orr; if (g < gap) { gap = g; vl = ov; } if (ahead < 12 && car.speed > 2) car.honk = 1; } }
+      let byPlayer = false;
+      for (const [ox, oz, orr, ov] of obst) { const dx = ox - car.x, dz = oz - car.z; const ahead = dx * fx + dz * fz; if (ahead <= 0 || ahead > 30) continue; const side = Math.abs(dx * fz - dz * fx); if (side < 1.6 + orr) { const g = ahead - car.len / 2 - orr; if (g < gap) { gap = g; vl = ov; byPlayer = true; } } }
+      // horn decisions (drivers honk for a reason, not at random): time-to-collision with the player / player vehicle,
+      // being blocked by them, a sudden cut-in, or a long jam — each with probability, per-car cooldown and a global gap
+      car.hornCd = Math.max(0, (car.hornCd || 0) - dt);
+      if (this.onHonk && car.hornCd <= 0 && gap < 1e8) {
+        const closing = car.speed - vl, ttc = closing > 0.5 ? gap / closing : 99; let style = null, p = 0;
+        if (byPlayer && car.speed > 3 && ttc < 2.2 && gap < 16) { style = 'warn'; p = 0.85; }
+        else if (byPlayer && car.speed < 0.5 && gap < 8) { car.blockT = (car.blockT || 0) + dt; if (car.blockT > 3.5) { style = 'annoyed'; p = 0.6; car.blockT = 0; } }
+        else if (!byPlayer && gap < 5 && closing > 3) { style = 'warn'; p = 0.45; }
+        else if (!byPlayer && car.stuck > 8) { style = 'annoyed'; p = 0.25; }
+        if (!byPlayer || car.speed >= 0.5) car.blockT = 0;
+        if (style) { car.hornCd = 6 + Math.random() * 6; const now = performance.now(); if (Math.random() < p && now - (this.lastHonk || 0) > 1200) { this.lastHonk = now; this.onHonk(car, style); } }
+      }
       const aMax = car.moto ? 2.6 : 1.8, bComf = 2.4, T = car.moto ? 1.0 : 1.4, s0 = car.moto ? 1.5 : 2.2, v = car.speed;
       let acc = aMax * (1 - Math.pow(v / Math.max(1, v0), 4));
       if (gap < 1e8) { const sStar = s0 + Math.max(0, v * T + v * (v - vl) / (2 * Math.sqrt(aMax * bComf))); acc -= aMax * Math.pow(sStar / Math.max(0.3, gap), 2); }

@@ -1,4 +1,7 @@
 // Multiplayer client (socket.io). Falls back to offline single-player when no server is reachable.
+// idempotency key for authoritative requests: a retried / replayed request with the same rid is applied at most once
+export const rid = () => { const a = new Uint8Array(12); crypto.getRandomValues(a); return [...a].map(b => b.toString(16).padStart(2, '0')).join(''); };
+
 export class Net {
   constructor() {
     this.online = false; this.socket = null; this.id = null; this.handlers = {}; this.timeOffset = 0; this.ping = 0;
@@ -19,7 +22,7 @@ export class Net {
       s.on('connect_error', () => { /* keep trying silently until timeout */ });
       s.on('disconnect', () => { this.online = false; this.emitLocal('offline'); });
       s.io.on('reconnect', () => { s.emit('hello', hello); });
-      for (const ev of ['pjoin', 'pleave', 'pinfo', 'snap', 'chat', 'money', 'online', 'kick', 'sys']) s.on(ev, (d) => this.emitLocal(ev, d));
+      for (const ev of ['pjoin', 'pleave', 'pinfo', 'snap', 'chat', 'money', 'online', 'kick', 'sys', 'sfx', 'me', 'force', 'notif', 'rtc']) s.on(ev, (d) => this.emitLocal(ev, d));
       setInterval(() => { if (!this.online) return; const t0 = performance.now(); s.timeout(4000).emit('ping', 0, (err) => { if (!err) this.ping = Math.round(performance.now() - t0); }); }, 5000);
     });
   }

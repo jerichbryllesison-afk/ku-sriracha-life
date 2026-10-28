@@ -48,6 +48,17 @@ export const PLACES = [
   { id: 'NOODLE', name: 'Boat Noodle Shop', th: 'ก๋วยเตี๋ยวเรือ', kind: 'noodle', at: [-1135, 720], style: 'shop', floors: 2, town: true },
   { id: 'CLINIC', name: 'Laem Chabang Hospital', th: 'โรงพยาบาลแหลมฉบัง', kind: 'clinic', at: [-1135, -430], style: 'ku', floors: 5, town: true },
   { id: 'CONDO', name: 'Laemchabang Tower', th: 'แหลมฉบัง ทาวเวอร์', kind: 'condo', at: [-1135, -620], style: 'glass', floors: 14, town: true },
+  // ---- living-campus additions: generic businesses on existing Sukhumvit buildings (names are stand-ins, not real branches) ----
+  { id: 'MALL', name: 'Sriracha Community Mall', th: 'ห้างคอมมูนิตี้มอลล์ ศรีราชา', kind: 'mall', at: [-1126, -346], style: 'glass', floors: 4, town: true },
+  { id: 'BARHALL', name: 'Sky Lounge (live acoustic)', th: 'สกายเลานจ์ ดนตรีอะคูสติก', kind: 'bar', at: [-1123, -278], style: 'glass', floors: 3, town: true },
+  { id: 'STEAK', name: 'Ember Steakhouse', th: 'สเต๊กเฮาส์ เอ็มเบอร์', kind: 'steak', at: [-1133, -181], style: 'shop', floors: 2, town: true },
+  { id: 'SHABU', name: 'Shabu Buffet', th: 'ชาบูบุฟเฟต์', kind: 'shabu', at: [-1120, -102], style: 'shop', floors: 2, town: true },
+  { id: 'BEAUTY', name: 'Beauty Store', th: 'ร้านเครื่องสำอาง', kind: 'beauty', at: [-1147, 136], style: 'shop', floors: 2, town: true },
+  { id: 'TUNING', name: 'Auto Garage & Tuning', th: 'อู่ซ่อมและแต่งรถ', kind: 'tuning', at: [-1144, 226], style: 'showroom', floors: 2, town: true },
+  { id: 'FRIEDCHK', name: 'Fried Chicken House', th: 'ร้านไก่ทอด', kind: 'friedchicken', at: [-1085, 523], style: 'shop', floors: 1, town: true },
+  { id: 'GADGET', name: 'IT & Gadget Store', th: 'ร้านไอทีและแกดเจ็ต', kind: 'gadget', at: [-1142, -642], style: 'glass', floors: 2, town: true },
+  { id: 'RAMEN', name: 'Ramen Bar', th: 'ร้านราเมน', kind: 'ramen', at: [-1090, -716], style: 'shop', floors: 1, town: true },
+  { id: 'LUXCAFE', name: 'Specialty Café', th: 'คาเฟ่พรีเมียม', kind: 'luxcafe', at: [-1080, 826], style: 'glass', floors: 2, town: true },
   // real residences near campus — positions ESTIMATED from published distances (renthub / propertyhub / fazwaz listings)
   { id: 'AARES', name: 'AA Residence Sriracha', th: 'เอเอ เรสซิเด้นซ์ ศรีราชา', kind: 'condo', at: [-1140, -700], style: 'dorm', floors: 6, town: true },
   // ---- procedural: campus specials ----
@@ -64,6 +75,8 @@ export const PLACES = [
   { id: 'KENS', name: 'Kensington Laemchabang-Sriracha', th: 'เคนซิงตัน แหลมฉบัง-ศรีราชา', kind: 'condo', rect: { x: -1250, z: -215, w: 36, d: 24, door: 'e' }, style: 'glass', floors: 8 },
   { id: 'NOTT', name: 'Notting Hill Laemchabang-Sriracha', th: 'น็อตติ้งฮิลล์ แหลมฉบัง-ศรีราชา', kind: 'condo', rect: { x: -1250, z: -262, w: 36, d: 22, door: 'e' }, style: 'kuglass', floors: 8 },
   { id: 'PTHOUSE', name: 'PT House (Ao Udom 5)', th: 'พีที เฮ้าส์ อ่าวอุดม 5', kind: 'condo', rect: { x: -1236, z: 412, w: 20, d: 14, door: 'w' }, style: 'dorm', floors: 4 },
+  { id: 'BAR', name: 'Beach Bar (live band)', th: 'บาร์ริมหาด ดนตรีสด', kind: 'bar', rect: { x: -1232, z: 40, w: 18, d: 14, door: 'w' }, style: 'thai', floors: 1, fh: 4.2 },
+  { id: 'FINEDINE', name: 'Sea-view Fine Dining', th: 'ห้องอาหารหรูริมทะเล', kind: 'finedining', rect: { x: -1236, z: 200, w: 24, d: 16, door: 'w' }, style: 'glass', floors: 2 },
   { id: 'SEAFOOD', name: 'Seafood Restaurant', th: 'ร้านอาหารทะเล', kind: 'seafood', rect: { x: -1342, z: -40, w: 20, d: 14, door: 'e' }, style: 'thai', floors: 1, fh: 4 },
 ];
 export const PLACE = Object.fromEntries(PLACES.map(p => [p.id, p]));

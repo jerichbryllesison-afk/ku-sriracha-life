@@ -387,14 +387,38 @@ export function buildTreeLOD(items, geos, geosLo, mat, castShadow) {
     }
     chunks.push(ch);
   }
+  // Per-instance LOD + view culling. Each InstancedMesh keeps its full source matrices/colours; on update we compact the
+  // instances that are (a) inside the right distance band and (b) inside the camera's horizontal view cone (+margin) or
+  // close to the camera (shadow casters around the player), and draw only those. Trees behind the camera were the single
+  // largest triangle cost after grass (≈1.1 M of 3.2 M main-view triangles at the main gate, measured with renderer.info).
+  const all = [];
+  for (const ch of chunks) for (const [list, band] of [[ch.hi, 0], [ch.lo, 1]]) for (const im of list) {
+    const n = im.count; const src = im.instanceMatrix.array.slice(0, n * 16); const col = im.instanceColor ? im.instanceColor.array.slice(0, n * 3) : null;
+    const px = new Float32Array(n), pz = new Float32Array(n), rk = new Float32Array(n); for (let i = 0; i < n; i++) { px[i] = src[i * 16 + 12]; pz[i] = src[i * 16 + 14]; rk[i] = ((Math.sin(i * 12.9898 + n * 78.233) * 43758.5453) % 1 + 1) % 1; }
+    all.push({ im, band, n, src, col, px, pz, rk });
+  }
+  const last = { x: 1e9, z: 1e9, fx: 0, fz: 0, hi: 0, lo: 0, t: 0 };
   return {
     root, chunks,
-    update(x, z, hiDist, loDist) {
-      for (const ch of chunks) {
-        const d = Math.hypot(ch.cx - x, ch.cz - z) - CH * 0.6;
-        const st = d < hiDist ? 0 : d < loDist ? 1 : 2;
-        if (st === ch.state) continue; ch.state = st;
-        for (const m of ch.hi) m.visible = st === 0; for (const m of ch.lo) m.visible = st === 1;
+    update(x, z, hiDist, loDist, fwd, cosLim = 0.3) {
+      const fx = fwd ? fwd.x : 0, fz = fwd ? fwd.z : 0, fl = Math.hypot(fx, fz) || 1, ux = fx / fl, uz = fz / fl;
+      const now = performance.now();
+      const moved = Math.hypot(x - last.x, z - last.z) > 6 || ux * last.fx + uz * last.fz < 0.985 || hiDist !== last.hi || now - last.t > 700;
+      if (!moved) return; Object.assign(last, { x, z, fx: ux, fz: uz, hi: hiDist, lo: loDist, t: now });
+      const hi2 = hiDist * hiDist, lo2 = loDist * loDist, NEAR2 = 60 * 60; // all trees within 60 m stay (their shadows can fall into view)
+      for (const e of all) {
+        const { im, band, n, src, col, px, pz, rk } = e; const dst = im.instanceMatrix.array, dc = im.instanceColor ? im.instanceColor.array : null; let k = 0;
+        for (let i = 0; i < n; i++) {
+          const dx = px[i] - x, dz = pz[i] - z, d2 = dx * dx + dz * dz;
+          if (band === 0 ? d2 >= hi2 : (d2 < hi2 || d2 >= lo2)) continue;
+          if (d2 > NEAR2 && fwd) { const d = Math.sqrt(d2); if ((dx * ux + dz * uz) / d < cosLim) continue;
+            // far band thinning: beyond ~650 m each tree is a few pixels inside haze — keep a stable random subset (100 % → 28 %)
+            if (band === 1 && d > 650 && rk[i] > 1 - 0.72 * Math.min(1, (d - 650) / Math.max(1, loDist - 650))) continue; }
+          dst.set(src.subarray(i * 16, i * 16 + 16), k * 16); if (dc) dc.set(col.subarray(i * 3, i * 3 + 3), k * 3);
+          k++;
+        }
+        im.count = k; im.visible = k > 0;
+        if (k) { im.instanceMatrix.clearUpdateRanges(); im.instanceMatrix.addUpdateRange(0, k * 16); im.instanceMatrix.needsUpdate = true; if (im.instanceColor) { im.instanceColor.clearUpdateRanges(); im.instanceColor.addUpdateRange(0, k * 3); im.instanceColor.needsUpdate = true; } }
       }
     },
   };

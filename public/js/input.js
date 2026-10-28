@@ -4,7 +4,8 @@ export class Input {
     this.keys = new Set(); this.pressed = new Set(); this.canvas = canvas;
     this.mdx = 0; this.mdy = 0; this.wheel = 0; this.locked = false; this.enabled = true; this.typing = false;
     this.touch = { active: false, mx: 0, my: 0, look: null, joyId: null, lookId: null, buttons: new Set() };
-    this.isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    // touch UI only when touch is the primary input (a touchscreen laptop with a mouse keeps mouse-look + pointer lock)
+    this.isTouch = matchMedia('(pointer: coarse)').matches || (('ontouchstart' in window) && !matchMedia('(any-pointer: fine)').matches);
     addEventListener('keydown', (e) => {
       if (this.typing) return;
       const k = e.code;

@@ -1,10 +1,12 @@
 // Core game state: profile, needs, XP/levels, economy calls (online/offline), quests, events, GPS, collectibles.
 import * as THREE from 'three';
+import { L2 } from './i18n.js';
 import { ITEMS, MAIN_QUESTS, SIDE_QUESTS, DAILY, xpForLevel, levelTitle, gameTime, weatherForDay, MAX_LEVEL, CLOTHES } from '../shared/catalog.js';
 import * as ECO from '../shared/economy.js';
 import { fmt } from './ui.js';
 import { SURF } from './collision.js';
 import { edgePoint } from './roadnet.js';
+import { rid } from './net.js';
 
 const LS_PROFILE = 'kusl_profile_v1';
 const AREAS = [];
@@ -33,29 +35,66 @@ export class Game {
   save(force = false) {
     if (!this.profile) return;
     if (this.player) { const q = this.player.pos; this.profile.pos = [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10, Math.round(q.z * 10) / 10]; }
-    this.profile.vehicleFuel = this.profile.vehicles.map(v => v.fuel);
+    if (this.syncVehicleState) this.syncVehicleState();
+    this.profile.vehicleFuel = this.profile.vehicles.map(v => v.fuel); this.profile.vehicleCond = this.profile.vehicles.map(v => v.condition ?? 1);
     this.saveLocal();
-    if (this.net.online) { const { money, wardrobe, vehicles, claimed, hairs, txlog, ...rest } = this.profile; this.net.send('save', { ...rest, levelChanged: this._lvChanged }); this._lvChanged = false; }
+    if (this.net.online) { const { money, wardrobe, vehicles, claimed, hairs, txlog, xp, level, name, inventory, lastAllowanceDay, playtime, home, biz, ...rest } = this.profile; this.net.send('save', rest); this._lvChanged = false; }
   }
-  applyServer(res) { if (!res) return; if (typeof res.money === 'number') this.profile.money = res.money; if (res.profile) Object.assign(this.profile, res.profile); }
+  // Online, the server owns money, XP/level, inventory, wardrobe, vehicles and quest progress: every reply carries `me`.
+  applyServer(res) {
+    if (!res) return;
+    if (res.me) this.applyMe(res.me);
+    if (res.ups && res.ups.length) this.levelUps(res.ups, res.bonus);
+    if (res.err === 'Server timeout') this.resync();
+  }
+  applyMe(m) {
+    const p = this.profile; if (!p || !m) return; const lv = p.level;
+    for (const k of ['money', 'xp', 'level', 'inventory', 'wardrobe', 'hairs', 'lastAllowanceDay', 'txlog', 'playtime', 'name', 'home', 'biz']) if (m[k] !== undefined) p[k] = m[k];
+    if (m.uid) this.myUid = m.uid;
+    if (typeof m.main === 'number') p.quests.main = m.main;
+    if (Array.isArray(m.vehicles)) { const old = new Map((p.vehicles || []).map(v => [v.vid, v])); p.vehicles = m.vehicles.map(v => ({ ...v, fuel: old.has(v.vid) ? Math.min(old.get(v.vid).fuel ?? 1, v.fuel ?? 1) : v.fuel })); }
+    if (m.playtime !== undefined) this.playAt = performance.now();
+    if (Array.isArray(m.vehicles) && this.refreshVehicles) this.refreshVehicles();
+    if (p.level !== lv) { this._lvChanged = true; if (this.player) this.player.updateLabel?.(); }
+  }
+  levelUps(ups, bonus) {
+    for (const L of ups) { this.audio.levelUp(); this.ui.big(`LEVEL ${L}!`, levelTitle(L)); }
+    if (this.society) this.society.flag('level');
+    if (bonus) this.ui.toast(`🎁 Level bonus +${fmt(bonus)}`, 'gold');
+    this.event('level');
+  }
+  async resync() { if (this._syncing || !this.net.online) return; this._syncing = true; const r = await this.net.rpc('sync', {}); this._syncing = false; if (r && r.me) this.applyMe(r.me); }
+  playtime() { const p = this.profile; return Math.floor((p.playtime || 0) + (this.playAt ? (performance.now() - this.playAt) / 1000 : 0)); }
   // economy: online → server authoritative; offline → local rules
   async buy(kind, id, qty = 1, color) {
     let res;
-    if (this.net.online) { res = await this.net.rpc('buy', { kind, id, qty, color }); this.applyServer(res); }
+    if (this.net.online) { res = await this.net.rpc('buy', { kind, id, qty, color, rid: rid() }); this.applyServer(res); }
     else { res = ECO.applyBuy(this.profile, { kind, id, qty, color }); }
     if (res.ok) { if (res.cost) this.audio.cash(); this.saveLocal(); } else { this.audio.error(); this.ui.toast('❌ ' + (res.err || 'Failed'), 'bad'); }
     return res;
   }
+  // offline single-player wage (local rules). Online wages are computed by the server from a shift ticket (jobStart/jobFinish).
   async earn(job, amount) {
-    amount = Math.round(amount); let res;
-    if (this.net.online) { res = await this.net.rpc('earn', { job, amount }); this.applyServer(res); }
-    else res = ECO.applyEarn(this.profile, { job, amount }, this.memo);
+    amount = Math.round(amount); if (amount <= 0) return { ok: false };
+    const res = ECO.applyEarn(this.profile, { job, amount }, this.memo);
     if (res.ok) { this.audio.cash(); this.ui.toast(`💰 +${fmt(res.amount)} earned`, 'gold'); } else this.ui.toast('❌ ' + (res.err || 'Payment failed'), 'bad');
     this.saveLocal(); return res;
   }
+  async jobStart(job, extra = {}) {
+    if (!this.net.online) return { ok: true, offline: true };
+    const r = await this.net.rpc('job', { op: 'start', job, ...extra }); if (!r.ok) { this.audio.error(); this.ui.toast('❌ ' + (r.err || 'Job unavailable'), 'bad'); } return r;
+  }
+  async jobStep(jid) { if (!jid || !this.net.online) return { ok: true }; let r = await this.net.rpc('job', { op: 'step', jid }); if (!r.ok) { await new Promise(f => setTimeout(f, 900)); r = await this.net.rpc('job', { op: 'step', jid }); } return r; }
+  jobCancel(jid) { if (jid && this.net.online) this.net.rpc('job', { op: 'cancel', jid }); }
+  async jobFinish(jid, s, offlinePay, job) {
+    if (!jid) return this.earn(job, offlinePay);
+    const r = await this.net.rpc('job', { op: 'finish', jid, s }); this.applyServer(r);
+    if (r.ok) { if (r.amount) { this.audio.cash(); this.ui.toast(`💰 +${fmt(r.amount)} earned`, 'gold'); } } else this.ui.toast('❌ ' + (r.err || 'Payment failed'), 'bad');
+    this.saveLocal(); return r;
+  }
   async claim(type, id) {
     let res; const day = this.time().day;
-    if (this.net.online) { res = await this.net.rpc('claim', { type, id, day }); this.applyServer(res); }
+    if (this.net.online) { res = await this.net.rpc('claim', { type, id, rid: rid() }); this.applyServer(res); }
     else res = ECO.applyClaim(this.profile, { type, id }, day);
     this.saveLocal(); return res;
   }
@@ -66,8 +105,15 @@ export class Game {
     if (res && res.ok) { this.ui.toast(`📩 Allowance from home: +${fmt(res.amount)}`, 'gold'); this.audio.notify(); }
   }
   // ---------------- XP / skills / needs ----------------
-  addXP(n, why = '') {
-    const p = this.profile; if (p.level >= MAX_LEVEL) return; p.xp += Math.round(n);
+  // src: activity key the server validates ('study', 'class', …). 'srv' = already granted by the server with a reward.
+  addXP(n, why = '', src = 'misc') {
+    const p = this.profile; if (p.level >= MAX_LEVEL) return;
+    if (this.net.online) {
+      if (src === 'srv') return;
+      this.net.rpc('xp', { r: src, n: Math.round(n) }).then(r => { this.applyServer(r); if (r.ok && why) this.ui.toast(`✨ +${r.xp} XP ${why}`); });
+      return;
+    }
+    p.xp += Math.round(n);
     if (why) this.ui.toast(`✨ +${Math.round(n)} XP ${why}`);
     while (p.level < MAX_LEVEL && p.xp >= xpForLevel(p.level)) {
       p.xp -= xpForLevel(p.level); p.level++; this._lvChanged = true;
@@ -85,12 +131,18 @@ export class Game {
     if (it.skill) for (const [k, v] of Object.entries(it.skill)) this.skill(k, v);
     if ((it.e && it.e.hunger) > 15) { this.profile.counters.meals++; this.event('eat', where); }
     this.ui.toast(`${it.icon} ${it.th || it.name}`);
-    if (!this.flags['ate_' + id]) { this.flags['ate_' + id] = 1; this.addXP(8); }
+    if (!this.flags['ate_' + id]) { this.flags['ate_' + id] = 1; this.addXP(8, '', 'eat'); }
   }
-  useItem(id) { const inv = this.profile.inventory; if (!inv[id]) return; inv[id]--; if (!inv[id]) delete inv[id]; this.eat(id, 'bag'); this.save(); }
+  async useItem(id) {
+    const inv = this.profile.inventory; if (!inv[id] || this._using) return; if (ITEMS[id] && (ITEMS[id].gadget || ITEMS[id].deco)) return;
+    if (this.net.online) { this._using = true; const r = await this.net.rpc('use', { id, rid: rid() }); this._using = false; this.applyServer(r); if (!r.ok) { this.ui.toast('❌ ' + (r.err || 'Failed'), 'bad'); return; } }
+    else { inv[id]--; if (!inv[id]) delete inv[id]; }
+    this.eat(id, 'bag'); this.save();
+  }
   // ---------------- events / quests ----------------
   event(type, data) {
     const p = this.profile; if (!p) return;
+    if (this.onEvent) this.onEvent(type, data);
     // main quest
     const q = MAIN_QUESTS[p.quests.main];
     if (q) {
@@ -111,15 +163,18 @@ export class Game {
       if (dq.type === type) inc = typeof data === 'number' && (type === 'distance' || type === 'drive') ? data : 1;
       if (!inc) continue;
       d.prog[dq.id] = (d.prog[dq.id] || 0) + inc;
-      if (d.prog[dq.id] >= dq.n) { d.done.push(dq.id); this.claim('daily', dq.id).then(r => { if (r.ok) { this.audio.quest(); this.ui.toast(`✅ Daily: ${dq.title} +${fmt(r.amount)}`, 'gold'); this.addXP(dq.xp); } }); }
+      if (d.prog[dq.id] >= dq.n) { d.done.push(dq.id); this.claim('daily', dq.id).then(r => { if (r.ok) { this.audio.quest(); this.ui.toast(`✅ ${L2('Daily', 'รายวัน')}: ${L2(dq.title, dq.th)} +${fmt(r.amount)}`, 'gold'); this.addXP(dq.xp, '', 'srv'); } }); }
     }
   }
   async completeMain(q) {
     const p = this.profile; if (this._completing) return; this._completing = true;
+    if (this.net.online && performance.now() - (this._mainFail || 0) < 8000) { this._completing = false; return; }
     const r = await this.claim('main', q.id);
-    p.quests.main++; this._completing = false;
-    this.audio.quest(); this.ui.big('QUEST COMPLETE', q.title);
-    this.addXP(q.xp); if (r.ok && r.amount) this.ui.toast(`🎁 +${fmt(r.amount)}`, 'gold');
+    if (this.net.online) { if (!r.ok) { this._mainFail = performance.now(); this._completing = false; if (r.err && r.err !== 'Too fast' && r.err !== 'Objective not met') this.ui.toast('❌ ' + r.err, 'bad'); return; } } // server advanced the quest (applyServer)
+    else p.quests.main++;
+    this._completing = false;
+    this.audio.quest(); this.ui.big('QUEST COMPLETE', L2(q.title, q.th));
+    this.addXP(q.xp, '', 'srv'); if (r.ok && r.amount) this.ui.toast(`🎁 +${fmt(r.amount)}`, 'gold');
     this.save(); this.refreshQuestRoute();
   }
   checkPassiveQuests() {
@@ -137,8 +192,13 @@ export class Game {
   currentObjective() {
     const p = this.profile;
     if (this.task) return { title: this.task.title, desc: this.task.desc, target: this.task.target };
+    if (this.coachObj) { const c = this.coachObj(); if (c) return { ...c, target: this.waypoint || c.target }; }
+    return this.mainObjective();
+  }
+  mainObjective() {
+    const p = this.profile;
     const q = MAIN_QUESTS[p.quests.main];
-    if (!q) return this.waypoint ? { title: 'GPS', desc: 'Waypoint', target: this.waypoint } : null;
+    if (!q) return this.waypoint ? { title: L2('GPS', 'นำทาง'), desc: this.waypoint.name || L2('Waypoint', 'จุดหมาย'), target: this.waypoint } : null;
     let target = null; const o = q.obj;
     const placeOf = (kind) => { let best = null, bd = 1e9; for (const pl of Object.values(this.world.places)) if (pl.kind === kind) { const d = Math.hypot(pl._door.x - this.player.pos.x, pl._door.z - this.player.pos.z); if (d < bd) { bd = d; best = pl._door; } } return best; };
     if (o.type === 'visit') target = this.world.pois[o.target];
@@ -149,7 +209,7 @@ export class Game {
     else if (o.type === 'club') target = this.world.pois.B09;
     else if (o.type === 'run') target = this.world.pois.trackStart;
     else if (o.type === 'job') target = placeOf('cafeteria');
-    return { title: q.title, desc: q.desc, target: this.waypoint || target };
+    return { title: L2(q.title, q.th), desc: L2(q.desc, q.desc_th), target: this.waypoint || target, main: true };
   }
   // ---------------- GPS routing on the road graph ----------------
   nearestNode(x, z) { let best = null, bd = 1e18; for (const n of this.world.net.nodes) { const d = (n.x - x) ** 2 + (n.z - z) ** 2; if (d < bd && n.edges.some(e => e.e.w >= 4)) { bd = d; best = n; } } return best; }
@@ -174,9 +234,9 @@ export class Game {
   refreshQuestRoute() { this.routeTimer = 0; }
   updateRoute(dt) {
     const obj = this.currentObjective(); const pos = this.player.pos;
-    if (!obj || !obj.target) { this.route = null; this.beam.visible = false; this.ui.quest(obj ? obj.title : null, obj ? obj.desc : '', ''); return; }
+    if (!obj || !obj.target) { this.route = null; this.beam.visible = false; this.ui.quest(obj ? obj.title : null, obj ? obj.desc : '', '', obj && obj.label); return; }
     const t = obj.target; const d = Math.hypot(t.x - pos.x, t.z - pos.z);
-    this.ui.quest(obj.title, obj.desc, `📍 ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}`);
+    this.ui.quest(obj.title, obj.desc, `📍 ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}`, obj.label);
     this.routeTimer -= dt;
     if (this.routeTimer <= 0 || !this.route || this.routeTarget !== t) { this.routeTimer = 2.5; this.routeTarget = t; this.route = this.computeRoute(pos.x, pos.z, t.x, t.z); }
     this.beam.visible = true; this.beam.position.set(t.x, this.world.heightAt(t.x, t.z), t.z);
@@ -191,6 +251,20 @@ export class Game {
       fragmentShader: 'uniform float uT; uniform float uNear; varying float vY; varying float vF; void main(){ float a = pow(vF, 2.5) * (1.0 - vY) * (0.55 + 0.25 * sin(uT * 3.0 - vY * 30.0)) * uNear; gl_FragColor = vec4(vec3(1.0, 0.78, 0.25) * a, a); }',
     });
     const mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; mesh.renderOrder = 5; return mesh;
+  }
+  // ---------------- door markers: a soft gold ring at every building / dorm / condo / shop entrance ----------------
+  setupDoorMarkers() {
+    const doors = Object.values(this.world.places).map(p => p._door).filter(Boolean); if (!doors.length) return;
+    const g = new THREE.RingGeometry(0.85, 1.2, 40); g.rotateX(-Math.PI / 2);
+    const m = new THREE.MeshBasicMaterial({ color: 0xf0c75a, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    const im = new THREE.InstancedMesh(g, m, doors.length); im.frustumCulled = false; im.renderOrder = 4; this.scene.add(im);
+    this.doorRing = { im, doors, t: 0 }; this.updateDoorMarkers(1);
+  }
+  updateDoorMarkers(dt) {
+    const R = this.doorRing; if (!R || !this.player) return; R.t -= dt; if (R.t > 0) return; R.t = 0.4;
+    const p = this.player.pos, M = this._dm || (this._dm = new THREE.Matrix4()), Z = new THREE.Matrix4().makeScale(0, 0, 0);
+    R.doors.forEach((d, i) => { const dist = Math.hypot(d.x - p.x, d.z - p.z); if (dist > 70) { R.im.setMatrixAt(i, Z); return; } const k = dist < 40 ? 1 : 1 - (dist - 40) / 30; M.makeScale(k, 1, k); M.setPosition(d.x, this.world.heightAt(d.x, d.z) + 0.05, d.z); R.im.setMatrixAt(i, M); });
+    R.im.instanceMatrix.needsUpdate = true;
   }
   // ---------------- collectibles: golden Nonsi flowers ----------------
   setupCollectibles() {
@@ -223,7 +297,7 @@ export class Game {
         m4.compose(v.set(f.x, y, f.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), f.rot), sc.set(1, 1, 1));
         if (Math.hypot(f.x - p.x, f.z - p.z) < 1.6 && Math.abs(y - 1 - p.y) < 2.5) {
           f.alive = false; this.profile.collected.push(f.idx);
-          this.claim('collect', f.idx).then(r => { this.audio.levelUp(); this.ui.big('🌼 Golden Nonsi Flower', `${this.profile.collected.length} / 25 found${r.ok ? ' · +' + fmt(r.amount) : ''}`); this.addXP(60); this.save(); });
+          this.claim('collect', f.idx).then(r => { this.audio.levelUp(); this.ui.big('🌼 Golden Nonsi Flower', `${this.profile.collected.length} / 25 found${r.ok ? ' · +' + fmt(r.amount) : ''}`); this.addXP(60, '', 'srv'); this.save(); });
         }
       }
       if (!f.alive) m4.makeScale(0, 0, 0);
@@ -257,7 +331,7 @@ export class Game {
       if (this.dayCache !== t.day) { this.dayCache = t.day; this.checkAllowance(); this.ensureDaily(t.day); }
     }
     this.saveTimer -= dt; if (this.saveTimer <= 0) { this.saveTimer = 10; this.save(); }
-    this.updateRoute(dt); this.updateCollectibles(dt); this.tickTask(dt);
+    this.updateRoute(dt); this.updateCollectibles(dt); this.tickTask(dt); this.updateDoorMarkers(dt);
   }
   faint() {
     this._fainting = true; this.ui.fade(true); this.ui.big('You fainted…', 'Rest and eat to stay healthy');
@@ -271,7 +345,7 @@ export class Game {
     const pos = this.player.pos;
     for (const pl of Object.values(this.world.places)) {
       if (this.discovered.has(pl.id)) continue;
-      if (Math.hypot(pl._door.x - pos.x, pl._door.z - pos.z) < 16) { this.discovered.add(pl.id); if (!this.flags['disc_' + pl.id]) { this.flags['disc_' + pl.id] = 1; this.ui.toast(`🧭 Discovered: <b>${pl.th || pl.name}</b>`); this.addXP(12); } }
+      if (Math.hypot(pl._door.x - pos.x, pl._door.z - pos.z) < 16) { this.discovered.add(pl.id); if (!this.flags['disc_' + pl.id]) { this.flags['disc_' + pl.id] = 1; this.ui.toast(`🧭 Discovered: <b>${pl.th || pl.name}</b>`); this.addXP(12, '', 'discover'); } }
     }
   }
   checkTrack() {
@@ -281,16 +355,17 @@ export class Game {
     if (Math.hypot(cx - pos.x, cz - pos.z) < 9) {
       if (ts.count === 0) ts.started = performance.now();
       ts.count++; ts.next = (ts.next + 1) % 4;
-      if (ts.count === 5) { const secs = (performance.now() - ts.started) / 1000; this.ui.big('🏃 Lap complete!', `${secs.toFixed(1)} s`); this.skill('fit', 2); this.addXP(40); this.event('run'); ts.count = 1; ts.started = performance.now(); }
+      if (ts.count === 5) { const secs = (performance.now() - ts.started) / 1000; this.ui.big('🏃 Lap complete!', `${secs.toFixed(1)} s`); this.skill('fit', 2); this.addXP(40, '', 'lap'); this.event('run'); ts.count = 1; ts.started = performance.now(); }
       else if (ts.count > 1) this.ui.toast(`Checkpoint ${ts.count - 1}/4`);
     }
   }
   // ---------------- route tasks (delivery, taxi, side quests) ----------------
   startTask(task) { this.task = task; this.routeTimer = 0; this.ui.toast(`🧭 ${task.title}: ${task.desc}`); this.audio.notify(); }
-  cancelTask() { if (this.task && this.task.passenger) this.task.passenger(false); this.task = null; this.ui.toast('Task cancelled'); }
+  cancelTask() { if (this.task && this.task.passenger) this.task.passenger(false); if (this.task && this.task.cancel) this.task.cancel(); this.task = null; this.ui.toast('Task cancelled'); }
   tickTask(dt) {
     const tk = this.task; if (!tk) return; const pos = this.player.pos;
     if (tk.limit) { tk.time += dt; if (tk.time > tk.limit && !tk.late) { tk.late = true; this.ui.toast('⏰ Running late — tip lost', 'bad'); } }
+    if (tk.tick) tk.tick(dt);
     const d = Math.hypot(tk.target.x - pos.x, tk.target.z - pos.z);
     if (d < (tk.radius || 7)) { const next = tk.onArrive(this); if (!next) { if (this.task === tk) this.task = null; } }
   }

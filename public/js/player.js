@@ -62,6 +62,7 @@ export class LocalPlayer {
     if (st.energy < 10) maxSpd = Math.min(maxSpd, 2.6);
     if (swimming) maxSpd = 2.2 * (input.down('ShiftLeft') ? 1.4 : 1);
     if (this.emote === 'sit' || this.emote === 'sleep' || this.emote === 'pushup' || this.emote === 'work') maxSpd = 0;
+    maxSpd *= this.speedMul || 1;
     const accel = this.grounded || swimming ? 7 : 1.5; // first-order response: ~0.4 s to reach target speed on foot, little air control
     this.vel.x += (wish.x * maxSpd - this.vel.x) * Math.min(1, accel * dt);
     this.vel.z += (wish.z * maxSpd - this.vel.z) * Math.min(1, accel * dt);
@@ -70,7 +71,7 @@ export class LocalPlayer {
     if (swimming) { this.mode = 'swim'; const target = wl - 1.2; this.pos.y += (target - this.pos.y) * Math.min(1, dt * 4); this.vel.y = 0; this.grounded = false; }
     else {
       this.mode = 'walk';
-      if (this.grounded && input.hit('Space') && !this.sitting) { this.vel.y = 6.0; this.grounded = false; }
+      if (this.grounded && input.hit('Space') && !this.sitting) { this.vel.y = 6.0 * (this.jumpMul || 1); this.grounded = false; if (this.onJump) this.onJump(); }
       this.vel.y -= 22 * dt; this.pos.y += this.vel.y * dt;
     }
     // horizontal move + collisions
@@ -95,8 +96,10 @@ export class LocalPlayer {
     const accelNow = (this.speed - (this._ps ?? this.speed)) / Math.max(1e-3, dt); this._ps = this.speed; this._acc = (this._acc ?? 0) + (accelNow - (this._acc ?? 0)) * Math.min(1, dt * 6);
     let dy = this.yaw - (this._py ?? this.yaw); dy = Math.atan2(Math.sin(dy), Math.cos(dy)); this._py = this.yaw; this._turn = (this._turn ?? 0) + (dy / Math.max(1e-3, dt) - (this._turn ?? 0)) * Math.min(1, dt * 6);
     this.char.animate(dt, { accel: this._acc, turn: this._turn, mode: swimming ? 'swim' : this.emote === 'sleep' ? 'sleep' : 'walk', speed: this.speed, grounded: this.grounded || swimming, vy: this.vel.y, emote: this.speed < 0.3 ? this.emote : null });
-    // footsteps
-    if (this.grounded && this.speed > 0.8 && rig.audio) { this.stepAcc += this.speed * dt; const stride = this.speed > 5 ? 2.2 : 1.5; if (this.stepAcc > stride) { this.stepAcc = 0; const s = W.col.surfAt(this.pos.x, this.pos.z); rig.audio.step(s === SURF.GRASS || s === SURF.FOREST ? 'grass' : s === SURF.SAND ? 'sand' : s === SURF.PIER || s === SURF.PLATFORM ? 'wood' : 'hard'); } }
+    // footsteps come from the animation's heel strikes (char.sfx); here: landing impact, hard stops
+    if (!this.grounded && !swimming) this._fall = Math.min(this._fall || 0, this.vel.y);
+    else { if (this._fall < -2.5 && this.onLand) this.onLand(-this._fall); this._fall = 0; }
+    if (this.grounded && (this._spPrev || 0) > 4.2 && this.speed < 1.4) { if (this.onStop) this.onStop(); this._spPrev = 0; } else this._spPrev = this.grounded ? Math.max(this.speed, (this._spPrev || 0) * Math.exp(-dt * 5)) : 0;
     if (swimming && this.speed > 0.5 && Math.random() < dt * 1.5 && rig.audio) rig.audio.splash();
   }
   sync() { this.char.root.position.copy(this.pos); this.char.root.rotation.set(0, this.yaw, 0); }
@@ -120,7 +123,7 @@ export class CameraRig {
     const want = v ? (v.moto ? 5.6 : 7.4) : 4.4;
     if (wheel) this.dist = Math.max(1.6, Math.min(16, this.dist + wheel * 0.8));
     if (this._lastVeh !== !!v) { this.dist = want; this._lastVeh = !!v; }
-    if (v && this.idle > 1.0 && Math.abs(v.speed) > 2) { let d = v.h + (v.speed < 0 ? Math.PI : 0) - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, dt * 2.2); this.pitch += (0.22 - this.pitch) * Math.min(1, dt * 1.5); }
+    if (v && this.idle > 1.0 && Math.abs(v.speed) > 2) { let d = v.h + (v.speed < 0 ? Math.PI : 0) - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * (1 - Math.exp(-dt * 2.2)); this.pitch += (0.22 - this.pitch) * (1 - Math.exp(-dt * 1.5)); }
     const tgt = this.target.copy(v ? new THREE.Vector3(v.x, v.y + (v.moto ? 1.5 : 1.7), v.z) : player.pos.clone().add(new THREE.Vector3(0, player.mode === 'swim' ? 1.4 : 1.55, 0)));
     if (this.first && !v) {
       this.cam.position.copy(player.pos).add(new THREE.Vector3(Math.sin(player.yaw) * 0.18, 1.62, Math.cos(player.yaw) * 0.18));
@@ -133,13 +136,13 @@ export class CameraRig {
       let d = this.dist;
       const hit = this.world.col.raySegment(tgt.x, tgt.y, tgt.z, tgt.x + dx * d, tgt.y + dy * d, tgt.z + dz * d, 0.35);
       if (hit < 1) d = Math.max(0.8, d * hit - 0.25);
-      this.cur += (d - this.cur) * Math.min(1, dt * (d < this.cur ? 18 : 4));
+      this.cur += (d - this.cur) * (1 - Math.exp(-dt * (d < this.cur ? 18 : 4)));
       const p = this.cam.position.set(tgt.x + dx * this.cur, tgt.y + dy * this.cur, tgt.z + dz * this.cur);
       const gh = this.world.groundHeight(p.x, p.z) + 0.35; if (p.y < gh) p.y = gh;
       if (this.shake > 0) { p.x += (Math.random() - 0.5) * this.shake; p.y += (Math.random() - 0.5) * this.shake; this.shake = Math.max(0, this.shake - dt * 2); }
       this.cam.lookAt(tgt);
     }
     const fovT = 62 + (v ? Math.min(14, Math.abs(v.speed) * 0.35) : 0);
-    this.fov += (fovT - this.fov) * Math.min(1, dt * 3); if (Math.abs(this.cam.fov - this.fov) > 0.05) { this.cam.fov = this.fov; this.cam.updateProjectionMatrix(); }
+    this.fov += (fovT - this.fov) * (1 - Math.exp(-dt * 3)); if (Math.abs(this.cam.fov - this.fov) > 0.05) { this.cam.fov = this.fov; this.cam.updateProjectionMatrix(); }
   }
 }

@@ -95,7 +95,7 @@ export class SkySystem {
     this.rainAmt = 0; this.flash = 0; this.nextFlash = 10;
 
     this.night = 0; this.sunDir = new THREE.Vector3(0, 1, 0);
-    this.fogDay = C('#a6bfd4'); this.fogSunset = C('#e8a87c'); this.fogNight = C('#1a2638'); this.fogRain = C('#7f8b96');
+    this.fogDay = C('#b3c6d4'); this.fogSunset = C('#e8a87c'); this.fogNight = C('#1a2638'); this.fogRain = C('#7f8b96');
   }
 
   skyColors(u, night, golden, overcast) {
@@ -116,11 +116,15 @@ export class SkySystem {
 
   update(dt, hour, weather, focus, camera) {
     const t = (hour - 6) / 12; // 0 sunrise, 1 sunset
-    const dayArc = Math.sin(t * Math.PI);
-    const sunDir = this.sunDir.set(Math.cos(t * Math.PI), dayArc * 0.95, 0.5 * Math.max(0.25, dayArc)).normalize();
+    // Art-directed sun path: azimuth sweeps east → west on the southern side; elevation peaks at ~46° instead of the
+    // near-zenith tropical noon, so buildings, trees and characters keep readable modelling and shadow length all day
+    // (an overhead sun flattens everything — the main reason the midday build looked artificial next to the 07:40 one).
+    const arc = Math.sin(t * Math.PI), el = arc * 0.8, ce = Math.cos(el);
+    const hx = Math.cos(t * Math.PI), hz = 0.45, hl = Math.hypot(hx, hz);
+    const sunDir = this.sunDir.set(hx / hl * ce, Math.sin(el), hz / hl * ce);
     const elev = sunDir.y;
     const night = 1 - sstep(-0.12, 0.08, elev); this.night = night;
-    const golden = sstep(0.0, 0.08, elev) * (1 - sstep(0.12, 0.35, elev));
+    const golden = sstep(0.0, 0.08, elev) * (1 - sstep(0.12, 0.45, elev));
     const wantRain = weather === 'rain' ? 1 : 0, cloudy = weather === 'cloudy' ? 1 : 0;
     this.rainAmt += (wantRain - this.rainAmt) * Math.min(1, dt * 0.25);
     const overcast = Math.max(this.rainAmt, cloudy * 0.55);
@@ -141,13 +145,13 @@ export class SkySystem {
     // light
     const lightDir = night > 0.5 ? md : sunDir;
     const dayCol = lerpColor(C('#fff0d8'), C('#ffad62'), golden);
-    const sunI = (1 - night) * (3.2 + 1.4 * Math.min(1, elev * 2)) * (1 - overcast * 0.7);
+    const sunI = (1 - night) * (3.0 + 1.3 * Math.min(1, elev * 1.8)) * (1 - overcast * 0.7);
     const moonI = night * 0.75 * (1 - overcast * 0.5);
     this.sun.color.copy(night > 0.5 ? C('#9fb4ff') : dayCol);
     this.sun.intensity = night > 0.5 ? moonI : sunI;
     if (this.flash > 0) { this.sun.intensity += this.flash * 6; this.sun.color.set('#dfe8ff'); }
-    this.hemi.intensity = 0.14 + night * 0.3 + overcast * 0.3;
-    this.hemi.color.copy(lerpColor(C('#c2dcff'), C('#5d7099'), night)); this.hemi.groundColor.copy(lerpColor(C('#5a5440'), C('#2a2a30'), night));
+    this.hemi.intensity = 0.42 + night * 0.06 + overcast * 0.2; // sky fill: shadows keep structure (were near-black at 0.14)
+    this.hemi.color.copy(lerpColor(C('#c2dcff'), C('#5d7099'), night)); this.hemi.groundColor.copy(lerpColor(C('#6b6248'), C('#2a2a30'), night)); // warm ground bounce
 
     // shadow camera follows focus, snapped to texels
     const fx = focus.x, fz = focus.z;
@@ -164,7 +168,8 @@ export class SkySystem {
       let fc = lerpColor(this.fogDay, this.fogSunset, golden * 0.8);
       fc = fc.lerp(this.fogRain, overcast * 0.8).lerp(this.fogNight, night);
       fog.color.copy(fc);
-      fog.near = 120 - this.rainAmt * 90; fog.far = (this.opts.viewDist || 1500) * (1 - this.rainAmt * 0.6);
+      // aerial perspective: haze starts close and reaches the fog colour well before the draw distance → depth layering
+      fog.near = 70 - this.rainAmt * 50; fog.far = (this.opts.viewDist || 1500) * 0.74 * (1 - this.rainAmt * 0.6);
       this.renderer.setClearColor(fc);
     }
     // clouds
@@ -179,7 +184,7 @@ export class SkySystem {
       if (this.envRT) this.envRT.dispose();
       this.envRT = rt; this.scene.environment = rt.texture;
     }
-    this.scene.environmentIntensity = 0.3 + (1 - night) * 0.12 + overcast * 0.15;
+    this.scene.environmentIntensity = 0.42 + (1 - night) * 0.2 + overcast * 0.1;
 
     // rain
     this.rain.visible = this.rainAmt > 0.05;

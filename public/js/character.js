@@ -226,6 +226,7 @@ export class Character {
     this.phone.visible = st.emote === 'phone';
     if (mode === 'walk' || mode === 'swim' && false) {
       if (!st.grounded) { // jump / fall
+        this._sk = undefined;
         const up = (st.vy || 0) > 0;
         set('thighL', up ? -0.7 : -0.3); set('thighR', up ? -0.1 : 0.2); set('shinL', up ? 1.1 : 0.5); set('shinR', up ? 0.5 : 0.3);
         set('upperArmL', -0.4, 0, 0.5); set('upperArmR', 0.2, 0, -0.5); set('forearmL', -0.6); set('forearmR', -0.5); set('spine', 0.1);
@@ -236,6 +237,8 @@ export class Character {
         const step = 0.62 + Math.min(1, sp / 7) * 0.95;
         this.phase += sp * dt * Math.PI / step;
         const p = this.phase, s = Math.sin(p), c = Math.cos(p);
+        // heel strike = lowest pelvis point (|cos p| = 0) → animation event for footstep audio, alternating feet
+        { const k = Math.floor((p - Math.PI / 2) / Math.PI); if (this._sk !== undefined && k !== this._sk && this.sfx) this.sfx('step', k & 1, run, sp); this._sk = k; }
         const A = 0.36 + run * 0.42; // thigh swing amplitude (rad)
         set('thighL', -s * A - run * 0.18, 0, 0.02); set('thighR', s * A - run * 0.18, 0, -0.02);
         // knee: flexes during swing (foot passing), almost straight at heel strike; more flexion when running
@@ -254,13 +257,14 @@ export class Character {
         hipsX = s * 0.025 * (1 - run * 0.6);
         rootLean = 0; this.bank = (this.bank || 0) + ((-(st.turn || 0) * Math.min(1, sp / 6) * 0.12) - (this.bank || 0)) * Math.min(1, dt * 5);
       } else {
+        this._sk = undefined;
         const b = Math.sin(t * 1.8);
         set('upperArmL', 0.02, 0, 0.09 + b * 0.01); set('upperArmR', 0.02, 0, -0.09 - b * 0.01); set('forearmL', -0.12); set('forearmR', -0.12);
         set('chest', 0.01 + b * 0.012); set('head', Math.sin(t * 0.37) * 0.04, Math.sin(t * 0.23) * 0.25, 0); set('thighL', 0, 0, 0.02); set('thighR', 0, 0, -0.02);
         if (st.emote === 'wave') { set('upperArmR', -0.2, 0, -2.6); set('forearmR', 0, 0, -0.4 + Math.sin(t * 9) * 0.45); set('head', 0, -0.2); }
         else if (st.emote === 'dance') { const d = t * 6; set('hips', 0, Math.sin(d) * 0.3, Math.sin(d) * 0.08); set('upperArmL', -1.2 + Math.sin(d) * 0.6, 0, 0.8); set('upperArmR', -1.2 - Math.sin(d) * 0.6, 0, -0.8); set('forearmL', -1); set('forearmR', -1); set('thighL', -Math.max(0, Math.sin(d)) * 0.5); set('thighR', -Math.max(0, -Math.sin(d)) * 0.5); set('shinL', Math.max(0, Math.sin(d)) * 0.8); set('shinR', Math.max(0, -Math.sin(d)) * 0.8); hipsY = Math.abs(Math.sin(d)) * 0.05; set('head', Math.sin(d * 2) * 0.15); }
         else if (st.emote === 'phone') { set('upperArmR', -0.55, 0.3, -0.25); set('forearmR', -1.75, 0, 0); set('handR', 0.3); set('head', 0.35, 0); set('upperArmL', -0.2, 0, 0.15); set('forearmL', -1.2); }
-        else if (st.emote === 'clap') { const k = Math.sin(t * 12) * 0.15; set('upperArmL', -0.9, 0, 0.35 + k); set('upperArmR', -0.9, 0, -0.35 - k); set('forearmL', -0.9, 0, -0.5); set('forearmR', -0.9, 0, 0.5); }
+        else if (st.emote === 'clap') { const k = Math.sin(t * 12) * 0.15; { const cb = Math.floor((t * 12 - Math.PI * 1.5) / (Math.PI * 2)); if (this._cb !== undefined && cb !== this._cb && this.sfx) this.sfx('clap'); this._cb = cb; } set('upperArmL', -0.9, 0, 0.35 + k); set('upperArmR', -0.9, 0, -0.35 - k); set('forearmL', -0.9, 0, -0.5); set('forearmR', -0.9, 0, 0.5); }
         else if (st.emote === 'think') { set('upperArmR', -0.6, 0, -0.2); set('forearmR', -2.2); set('head', 0.1, 0.2); set('upperArmL', -0.4, 0, 0.3); set('forearmL', -1.4, 0.6); }
         else if (st.emote === 'sit') { set('thighL', -1.55, 0, 0.08); set('thighR', -1.55, 0, -0.08); set('shinL', 1.5); set('shinR', 1.5); set('upperArmL', -0.3, 0, 0.12); set('upperArmR', -0.3, 0, -0.12); set('forearmL', -0.6); set('forearmR', -0.6); hipsY = -0.47; }
         else if (st.emote === 'pushup') { const k = (Math.sin(t * 3) + 1) * 0.5; rootLean = 1.35; set('upperArmL', -1.45 + k * 0.4, 0, 0.3); set('upperArmR', -1.45 + k * 0.4, 0, -0.3); set('forearmL', -k * 0.8); set('forearmR', -k * 0.8); hipsY = -0.62 - k * 0.12; }

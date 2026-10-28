@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/build/three.module.min.js","three/addons/":"../vendor/three/addons/"}}</script></head><body>
+<script type="module">
+import * as THREE from 'three';
+import { SkySystem } from '../js/sky.js';
+const r = new THREE.WebGLRenderer({antialias:true}); r.setSize(640,360); r.toneMapping = THREE.ACESFilmicToneMapping; document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.fog = new THREE.Fog(0xa6bfd4, 150, 1500);
+const cam = new THREE.PerspectiveCamera(62, 640/360, 0.3, 12000); cam.position.set(0, 2, 0); cam.lookAt(10, 3.5, 2);
+const g = new THREE.Mesh(new THREE.PlaneGeometry(4000,4000), new THREE.MeshStandardMaterial({color:0x4a7a3a})); g.rotation.x=-Math.PI/2; scene.add(g);
+const box = new THREE.Mesh(new THREE.BoxGeometry(10,20,10), new THREE.MeshStandardMaterial({color:0xdddddd})); box.position.set(60,10,10); scene.add(box);
+const sky = new SkySystem(r, scene, { shadows: 0, viewDist: 1500 });
+const q = new URLSearchParams(location.search); const h = +(q.get('h')||10);
+for (let i=0;i<3;i++){ sky.update(0.1, h, q.get('w')||'clear', {x:0,z:0}, cam); r.render(scene, cam); }
+window.__ready = true;
+</script></body></html>

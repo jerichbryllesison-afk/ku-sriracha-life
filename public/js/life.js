@@ -203,7 +203,7 @@ export class LifeSim {
   }
   place(a, x, z, h = 0) { a.x = x; a.z = z; a.h = h; a.y = this.world.heightAt(x, z); }
   remove(a) { a.dead = true; a.c.root.removeFromParent(); a.c.mesh.geometry.dispose(); if (a.seat) a.seat.taken = null; if (a.onRemove) a.onRemove(); }
-  say(a, kind, chance = 1) { if (Math.random() > chance || a.bubble.visible || a.dist > 28) return; a.bubble.userData.show(pick(LINES[kind] || LINES.walk)); a.bubble.userData.until = performance.now() + 3500; }
+  say(a, kind, chance = 1) { if (Math.random() > chance || a.bubble.visible || a.dist > 28) return; a.bubble.userData.show(pick(LINES[kind] || LINES.walk)); a.bubble.userData.until = performance.now() + 3500; if (this.onSay) this.onSay(a, kind); }
   goto(a, tx, tz, then) { const pts = this.walk.path(a.x, a.z, tx, tz); a.wp = pts; a.wpi = 0; a.act = 'walk'; a.then = then; a.stuck = 0; }
   inView(x, z, cam) { const dx = x - cam.position.x, dz = z - cam.position.z; const d = Math.hypot(dx, dz); if (d > 70) return false; const f = this._camF; return (dx * f.x + dz * f.z) / (d || 1) > 0.35; }
 
@@ -386,7 +386,7 @@ export class LifeSim {
           const goal = [P.x, P.z + dir * (P.hz + 2)]; const mates = ps.filter(m => m !== p && (m.z - p.z) * dir > 2);
           const tgt = Math.abs(goal[1] - p.z) < 22 || !mates.length ? goal : [pick(mates).x, pick(mates).z];
           const kx = tgt[0] - B.x, kz = tgt[1] - B.z, kd = Math.hypot(kx, kz) || 1; const power = Math.min(19, 6 + kd * 0.45);
-          B.vx = kx / kd * power + rr(-0.8, 0.8); B.vz = kz / kd * power; B.vy = kd > 18 ? rr(2, 5) : rr(0, 1.2); p.kickT = 0; P.cool = 0.45;
+          B.vx = kx / kd * power + rr(-0.8, 0.8); B.vz = kz / kd * power; B.vy = kd > 18 ? rr(2, 5) : rr(0, 1.2); p.kickT = 0; P.cool = 0.45; if (this.onKick) this.onKick(B.x, B.y, B.z, power);
           if (Math.random() < 0.08) this.say(p, 'sport', 1);
         }
       }
@@ -396,7 +396,7 @@ export class LifeSim {
     if (k.players.length < 3) { if (k.ball) k.ball.visible = false; return; }
     k.ball.visible = k.players[0].dist < 120;
     k.t += dt / 0.95;
-    if (k.t >= 1) { k.t = 0; k.from = k.to; let n; do { n = (Math.random() * k.players.length) | 0; } while (n === k.from && k.players.length > 1); k.to = n; const p = k.players[k.from]; p.kickT = 0; if (Math.random() < 0.05) this.say(p, 'takraw', 1); }
+    if (k.t >= 1) { k.t = 0; k.from = k.to; let n; do { n = (Math.random() * k.players.length) | 0; } while (n === k.from && k.players.length > 1); k.to = n; const p = k.players[k.from]; p.kickT = 0; if (this.onKick) this.onKick(k.ball.position.x, k.ball.position.y, k.ball.position.z, 5); if (Math.random() < 0.05) this.say(p, 'takraw', 1); }
     const a = k.players[k.from], b = k.players[k.to]; if (!a || !b) return; const u = k.t;
     const x = a.x + (b.x - a.x) * u, z = a.z + (b.z - a.z) * u, y = this.world.heightAt(x, z) + 0.6 + Math.sin(u * Math.PI) * 2.6;
     k.ball.position.set(x, y, z); k.ball.rotation.x += dt * 8;

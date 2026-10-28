@@ -1,7 +1,7 @@
 // Economy rules shared by the server (authoritative online) and the client (offline mode).
 import { ITEMS, CLOTHES, VEHICLES, HAIRSTYLES, RENTAL, JOBS, MAIN_QUESTS, SIDE_QUESTS, DAILY, START_MONEY, DAILY_ALLOWANCE, JOB_COOLDOWN_MS } from './catalog.js';
 
-export const SERVICES = { hotel: 450, condo: 650, gym: 80, pool: 30, clinic: 300, futsal: 40, haircolor: 60, meditate: 0, club: 0 };
+export const SERVICES = { hotel: 450, condo: 650, gym: 80, pool: 30, clinic: 300, futsal: 40, haircolor: 60, meditate: 0, club: 0, cinema: 180 };
 export const FUEL_PRICE = 36; // baht / litre
 export const COLLECT_REWARD = 150;
 export const PROTECTED = ['money', 'wardrobe', 'vehicles', 'claimed', 'hairs', 'bank', 'txlog'];
@@ -39,7 +39,7 @@ export function applyBuy(p, req) {
   const cost = priceOf(req.kind, req.id, req.kind === 'fuel' ? Number(req.qty) || 0 : qty);
   if (cost === null) return { ok: false, err: 'Unknown item' };
   if (req.kind === 'cloth') { const c = CLOTHES[req.id]; if (c.level && p.level < c.level) return { ok: false, err: `Requires level ${c.level}` }; if (p.wardrobe.includes(req.id)) return { ok: false, err: 'Already owned' }; }
-  if (req.kind === 'vehicle') { const v = VEHICLES[req.id]; if (v.level && p.level < v.level) return { ok: false, err: `Requires level ${v.level}` }; if (p.vehicles.length >= 6) return { ok: false, err: 'Garage full (6)' }; }
+  if (req.kind === 'vehicle') { const v = VEHICLES[req.id]; if (v.retired) return { ok: false, err: 'No longer sold' }; if (v.level && p.level < v.level) return { ok: false, err: `Requires level ${v.level}` }; if (p.vehicles.length >= 8) return { ok: false, err: 'Garage full (8)' }; }
   if (req.kind === 'hair' && p.hairs.includes(req.id)) return { ok: true, cost: 0, money: p.money };
   if (p.money < cost) return { ok: false, err: 'Not enough money' };
   p.money -= cost;
